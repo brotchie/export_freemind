@@ -24,6 +24,9 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
 #
 
+# TODO: 
+#   - Support images within HTML (embedded?).
+
 # python imports
 import os
 import time
@@ -51,6 +54,7 @@ except ImportError:
     # extension should be usable for non-graphical uses
     pass
 
+FREEMIND_VERSION = "0.9.0"
 
 class Extension(extension.Extension):
     def __init__(self, app):
@@ -185,6 +189,17 @@ def export_notebook(notebook, filename, task):
     task.set_message(("text", "Exporting %d notes..." % nnodes[0]))
     nnodes2 = [0]
 
+    def clean_etree(root):
+        # HTML parser in freemind doesn't support - characters in
+        # attribute names. We find any nodes with - containing
+        # attribute and remove them.
+        tofix = root.xpath('descendant::*[contains(name(@*), "-")]')
+        for node in tofix:
+            for key in node.attrib:
+                if '-' in key:
+                    del node.attrib[key]
+        return root
+
     def export_node(node):
         # report progresss
         nnodes2[0] += 1
@@ -192,6 +207,7 @@ def export_notebook(notebook, filename, task):
 
         element = etree.Element('node', TEXT=node.get_attr('title'))
 
+        # Non-leaf nodes start folded.
         if node.get_children():
             element.attrib['folded'] = 'true'
 
@@ -201,7 +217,7 @@ def export_notebook(notebook, filename, task):
                 # Process NoteBook html content, handling nbsp.
                 html_content = file(html_path, 'r').read()
                 html_content = html_content.replace('&nbsp;', '')
-                html_etree = etree.parse(StringIO(html_content))
+                html_etree = clean_etree(etree.parse(StringIO(html_content)))
 
                 # Create a richcontent Note for FreeMind.
                 richcontent = etree.Element('richcontent', TYPE='note')
@@ -213,9 +229,11 @@ def export_notebook(notebook, filename, task):
 
         return element
 
+    # Create and populate mindmap element tree.
+    root = etree.Element('map', version=FREEMIND_VERSION)
+    root.append(export_node(notebook))
 
-    root = export_node(notebook)
-
+    # Write element tree to destination filename.
     output = file(filename, 'w+')
     output.write(etree.tostring(root))
     output.close()
